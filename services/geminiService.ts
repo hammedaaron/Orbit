@@ -1,5 +1,17 @@
+
 import { GoogleGenAI, LiveServerMessage, Modality, Blob, Type, FunctionDeclaration } from "@google/genai";
 import { LogEntry, Item, Group } from "../types";
+
+/**
+ * Safely retrieve the API key from the environment.
+ */
+const getApiKey = (): string => {
+  try {
+    return (typeof process !== 'undefined' && process.env?.API_KEY) || '';
+  } catch {
+    return '';
+  }
+};
 
 // Helper for PCM Audio Blob creation
 function createBlob(data: Float32Array): Blob {
@@ -53,7 +65,7 @@ async function decodeAudioData(
 }
 
 export const generateInsights = async (item: Item, logs: LogEntry[]) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const logText = logs.map(l => `- [${l.type.toUpperCase()}] ${new Date(l.createdAt).toLocaleDateString()}: ${l.content}`).join('\n');
   
   const prompt = `Analyze this Web3 project based on my logs.
@@ -73,7 +85,7 @@ export const generateInsights = async (item: Item, logs: LogEntry[]) => {
 };
 
 export const speakText = async (text: string): Promise<AudioBuffer | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -121,7 +133,7 @@ const openProjectTool: FunctionDeclaration = {
 };
 
 export class LiveSession {
-  private ai: GoogleGenAI;
+  private ai: GoogleGenAI | null = null;
   private sessionPromise: Promise<any> | null = null;
   private inputAudioContext: AudioContext | null = null;
   private outputAudioContext: AudioContext | null = null;
@@ -130,15 +142,16 @@ export class LiveSession {
   private active = false;
   private onOpenItemCallback: ((id: string) => void) | null = null;
   
-  constructor(private onStatusChange: (status: string) => void) {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  }
+  constructor(private onStatusChange: (status: string) => void) {}
 
   async start(contextData: { groups: Group[], items: Item[], logs: LogEntry[], onOpenItem: (id: string) => void }) {
     if (this.active) return;
     this.active = true;
     this.onOpenItemCallback = contextData.onOpenItem;
     this.onStatusChange('connecting');
+
+    // Initialize AI here to ensure apiKey is ready
+    this.ai = new GoogleGenAI({ apiKey: getApiKey() });
 
     const dbContext = contextData.groups.map(g => {
       const groupItems = contextData.items.filter(i => i.groupId === g.id);
@@ -164,29 +177,15 @@ export class LiveSession {
     ONBOARDING PERSONA:
     You are the "Orbit Onboarding Agent." Your goal is to guide the user through their Command Center.
     
-    DEMO CONTEXT:
-    If you see a folder named "🚀 Demo: Start Here", help the user explore it.
-    - Right panel (folders) is where they categorize their world.
-    - Main screen (projects) displays project cards for a bird's-eye view.
-    - The Vault: When a card is opened, the user sees their private logs and social icons (X, YouTube, etc.) to plan execution.
-    
     INSTRUCTIONS:
     - Refer to Groups as "Folders".
-    - If the user asks what to do, suggest they open the 'Soccer Airdrop' project to see how notes and links stay organized.
     - Use the 'open_project' tool if they ask to see a project.
     `;
 
     const systemInstruction = `You are "Orbit", an advanced Web3 operating system voice AI.
-    
     ${onboardingScript}
-
     CURRENT VAULT STATE (Organized by Folder):
     ${dbContext}
-    
-    INSTRUCTIONS:
-    - Keep responses professional, secure, and helpful.
-    - Refer to the "Vault" as the source of truth.
-    - Keep responses short and focused.
     `;
 
     this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
