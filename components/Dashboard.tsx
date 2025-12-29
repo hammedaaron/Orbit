@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Sun, Moon, Zap, Menu, Folder, Trash2, X, AlertTriangle, Settings2, Loader2, Database, CloudOff } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { ItemCard } from './ItemCard';
@@ -36,32 +36,38 @@ export const Dashboard: React.FC = () => {
 
   const DEFAULT_ICONS: IconName[] = ['Box', 'Zap', 'Globe', 'Cpu', 'Wallet', 'FileText', 'Target', 'Layers'];
 
-  useEffect(() => {
+  const fetchData = useCallback(async () => {
     if (!user) return;
-    
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [fData, pData, lData] = await Promise.all([
-          persistenceService.getFolders(user.id),
-          persistenceService.getProjects(user.id),
-          persistenceService.getLogs(user.id)
-        ]);
-
-        setFolders(fData);
-        setProjects(pData);
-        setLogs(lData);
-
-        if (fData.length > 0 && !activeGroupId) {
-          setActiveGroupId(fData[0].id);
-        }
-      } catch (err) {
-        console.error("Dashboard Fetch Failed", err);
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    try {
+      let fData = await persistenceService.getFolders(user.id);
+      
+      // Seed demo data if totally empty
+      if (fData.length === 0) {
+        await persistenceService.seedDemoData(user.id);
+        fData = await persistenceService.getFolders(user.id);
       }
-    };
 
+      const [pData, lData] = await Promise.all([
+        persistenceService.getProjects(user.id),
+        persistenceService.getLogs(user.id)
+      ]);
+
+      setFolders(fData);
+      setProjects(pData);
+      setLogs(lData);
+
+      if (fData.length > 0 && !activeGroupId) {
+        setActiveGroupId(fData[0].id);
+      }
+    } catch (err) {
+      console.error("Dashboard Fetch Failed", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, activeGroupId]);
+
+  useEffect(() => {
     fetchData();
   }, [user]);
 
@@ -161,7 +167,6 @@ export const Dashboard: React.FC = () => {
   const executeBulkDelete = async () => {
     if (!user) return;
     if (deleteConfirmText.toLowerCase() === 'delete') {
-      // Fix: Cast explicitly to string[] to satisfy the persistenceService method signature
       const idsToDelete = Array.from(selectedForDeletion) as string[];
       const success = await persistenceService.deleteProjects(user.id, idsToDelete);
       if (success) {
