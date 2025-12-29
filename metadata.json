@@ -1,0 +1,7 @@
+{
+  "name": "D Orbit - Web3 Command Center",
+  "description": "A personal Web3 operating system for tracking projects, airdrops, and research with AI-powered insights.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

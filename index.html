@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Orbit - Web3 OS</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2225%22 fill=%22%232563eb%22/><circle cx=%2250%22 cy=%2250%22 r=%2215%22 fill=%22white%22/></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              background: 'var(--bg-color)', 
+              surface: 'var(--surface-color)',
+              border: 'var(--border-color)',
+              primary: 'var(--text-primary)',
+              secondary: 'var(--text-secondary)',
+              accent: '#3b82f6', 
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            animation: {
+              'gradient-x': 'gradientBG 15s ease infinite',
+              'shimmer': 'shimmer 2.5s linear infinite',
+            },
+            keyframes: {
+              gradientBG: {
+                '0%, 100%': { backgroundPosition: '0% 50%' },
+                '50%': { backgroundPosition: '100% 50%' },
+              },
+              shimmer: {
+                '0%': { backgroundPosition: '-1000px 0' },
+                '100%': { backgroundPosition: '1000px 0' }
+              }
+            }
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        --bg-color: #f4f4f5;
+        --surface-color: #ffffff;
+        --border-color: #e4e4e7;
+        --text-primary: #18181b;
+        --text-secondary: #71717a;
+      }
+      
+      html.dark {
+        --bg-color: #09090b;
+        --surface-color: #18181b;
+        --border-color: #27272a;
+        --text-primary: #e4e4e7;
+        --text-secondary: #a1a1aa;
+      }
+
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: 'Inter', sans-serif;
+        overflow-x: hidden;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+
+      /* Glass Card Effect */
+      .glass-card {
+        background: rgba(255, 255, 255, 0.03); /* More subtle default */
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        position: relative;
+        overflow: hidden;
+      }
+      
+      .dark .glass-card {
+        background: rgba(24, 24, 27, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      /* Alive Shimmer Overlay */
+      .alive-shimmer::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(
+          to right,
+          transparent 0%,
+          rgba(255, 255, 255, 0.03) 50%,
+          transparent 100%
+        );
+        transform: skewX(-25deg);
+        animation: shimmer 6s infinite;
+        pointer-events: none;
+      }
+
+      /* Power Mode Overrides */
+      html.power-mode body {
+        /* Deep Purple to Emerald Green Gradient */
+        background: linear-gradient(-45deg, #1a0b2e, #111827, #064e3b);
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
+      }
+
+      html.power-mode .glass-card {
+        background: rgba(20, 20, 30, 0.3);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      
+      html.power-mode .bg-background {
+         background: transparent !important;
+      }
+      
+      /* Reset surface color in power mode to be translucent */
+      html.power-mode {
+         --surface-color: rgba(20, 20, 30, 0.6);
+         --border-color: rgba(255, 255, 255, 0.1);
+      }
+
+      @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+
+      @keyframes shimmer {
+        0% { left: -100%; }
+        20% { left: 200%; }
+        100% { left: 200%; }
+      }
+
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border-color); 
+        border-radius: 4px;
+      }
+      .slider-thumb::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        background: white;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "uuid": "https://esm.sh/uuid@9.0.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
