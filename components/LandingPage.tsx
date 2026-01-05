@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
-  const { goToAuth, goToDocs } = useAuth();
+  const { goToAuth, goToDocs, enterLocalMode } = useAuth();
   const [scrollY, setScrollY] = useState(0);
 
   useEffect(() => {
@@ -82,15 +83,21 @@ export const LandingPage: React.FC = () => {
         </h1>
         
         <p className="text-xl md:text-2xl text-zinc-400 max-w-3xl mx-auto mb-16 leading-relaxed animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-300">
-          Stop losing links. Stop forgetting projects. Stop juggling Google Sheets, Notion, and Notes. Orbit is the calm, organized home for everything you do in Web3.
+          Stop losing links. Stop forgetting projects. Orbit is the calm, organized home for everything you do in Web3.
         </p>
         
-        <div className="flex flex-col md:flex-row items-center justify-center gap-6 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-450 mb-12">
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-450 mb-12 w-full max-w-lg">
           <button 
             onClick={goToAuth}
-            className="w-full md:w-auto px-12 py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-[2rem] font-black text-xl transition-all shadow-[0_0_60px_rgba(37,99,235,0.4)] hover:-translate-y-1 flex items-center justify-center gap-3 uppercase tracking-tight"
+            className="flex-1 px-12 py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-[2rem] font-black text-xl transition-all shadow-[0_0_60px_rgba(37,99,235,0.4)] hover:-translate-y-1 flex items-center justify-center gap-3 uppercase tracking-tight"
           >
-            Enter Orbit <ArrowRight size={24} />
+            Cloud Login <ArrowRight size={24} />
+          </button>
+          <button 
+            onClick={() => enterLocalMode()}
+            className="flex-1 px-12 py-6 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 border border-white/10 rounded-[2rem] font-black text-xl transition-all hover:-translate-y-1 flex items-center justify-center gap-3 uppercase tracking-tight"
+          >
+            Try Local Mode <Database size={24} className="text-blue-500" />
           </button>
         </div>
 

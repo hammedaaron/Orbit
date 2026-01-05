@@ -1,10 +1,11 @@
+
 import React from 'react';
-import { useAuth } from './context/AuthContext';
-import { LandingPage } from './components/LandingPage';
-import { AuthScreen } from './components/AuthScreen';
-import { SplashScreen } from './components/SplashScreen';
-import { Dashboard } from './components/Dashboard';
-import { DocsPage } from './components/DocsPage';
+import { useAuth } from './context/AuthContext.tsx';
+import { LandingPage } from './components/LandingPage.tsx';
+import { AuthScreen } from './components/AuthScreen.tsx';
+import { SplashScreen } from './components/SplashScreen.tsx';
+import { Dashboard } from './components/Dashboard.tsx';
+import { DocsPage } from './components/DocsPage.tsx';
 
 const App: React.FC = () => {
   const { view } = useAuth();

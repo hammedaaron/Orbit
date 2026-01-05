@@ -1,6 +1,8 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, IS_SUPABASE_CONFIGURED } from '../supabaseClient';
 import { User } from 'https://esm.sh/@supabase/supabase-js@2.48.1';
+import { SecurityManager } from '../services/persistenceService';
 
 type ViewState = 'landing' | 'auth' | 'splash' | 'app' | 'docs';
 type DocType = 'documentation' | 'architecture' | 'changelog';
@@ -13,29 +15,40 @@ interface AuthContextType {
   goToLanding: () => void;
   signIn: (email: string, pass: string) => Promise<void>;
   signUp: (email: string, pass: string) => Promise<void>;
+  sendOtp: (email: string) => Promise<void>;
+  verifyOtp: (email: string, token: string) => Promise<void>;
+  enterLocalMode: (skipSplash?: boolean) => void;
+  unlockVault: (password: string) => Promise<void>;
   logout: () => void;
   user: User | null;
   username: string | null;
   isGuest: boolean;
+  isCloudActive: boolean;
+  isVaultUnlocked: boolean;
 }
 
 const VIEW_STORAGE_KEY = 'orbit_view_state';
+const LOCAL_MODE_KEY = 'orbit_force_local';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [view, setView] = useState<ViewState>(() => {
     const savedView = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (localStorage.getItem(LOCAL_MODE_KEY) === 'true' && savedView === 'app') return 'app';
     return (savedView as ViewState) || 'landing';
   });
   
   const [docType, setDocType] = useState<DocType | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [isGuest, setIsGuest] = useState(!IS_SUPABASE_CONFIGURED);
+  const [isLocalOverride, setIsLocalOverride] = useState(() => localStorage.getItem(LOCAL_MODE_KEY) === 'true');
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
+
+  const isCloudActive = IS_SUPABASE_CONFIGURED && !isLocalOverride;
+  const isGuest = !isCloudActive;
 
   useEffect(() => {
-    if (!IS_SUPABASE_CONFIGURED) {
-      // Create a persistent local mock user
+    if (!isCloudActive) {
       const mockUser = { id: 'local-commander', email: 'commander@orbit.local' } as User;
       setUser(mockUser);
       return;
@@ -48,14 +61,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user && view === 'auth') {
+      if (session?.user && (view === 'auth' || view === 'landing')) {
         setView('splash');
-        setTimeout(() => setView('app'), 4000);
+        setTimeout(() => setView('app'), 3000);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [view]);
+  }, [view, isCloudActive]);
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
@@ -73,9 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, pass: string) => {
-    if (!IS_SUPABASE_CONFIGURED) {
-      setView('splash');
-      setTimeout(() => setView('app'), 4000);
+    if (!isCloudActive) {
+      enterLocalMode();
       return;
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
@@ -83,13 +95,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signUp = async (email: string, pass: string) => {
-    if (!IS_SUPABASE_CONFIGURED) return;
+    if (!isCloudActive) return;
     const { error } = await supabase.auth.signUp({ email, password: pass });
     if (error) throw error;
   };
 
+  const sendOtp = async (email: string) => {
+    if (!isCloudActive) return;
+    const { error } = await supabase.auth.signInWithOtp({ 
+      email,
+      options: { shouldCreateUser: true }
+    });
+    if (error) throw error;
+  };
+
+  const verifyOtp = async (email: string, token: string) => {
+    if (!isCloudActive) return;
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'email'
+    });
+    if (error) throw error;
+  };
+
+  const enterLocalMode = (skipSplash: boolean = false) => {
+    localStorage.setItem(LOCAL_MODE_KEY, 'true');
+    setIsLocalOverride(true);
+    if (skipSplash) {
+      setView('app');
+    } else {
+      setView('splash');
+      setTimeout(() => setView('app'), 2000);
+    }
+  };
+
+  const unlockVault = async (password: string) => {
+    try {
+      const key = await SecurityManager.deriveKey(password);
+      SecurityManager.setKey(key);
+      setIsVaultUnlocked(true);
+      sessionStorage.setItem('vault_unlocked', 'true');
+    } catch (e) {
+      throw new Error("Invalid Vault Password");
+    }
+  };
+
   const logout = async () => {
     if (IS_SUPABASE_CONFIGURED) await supabase.auth.signOut();
+    localStorage.removeItem(LOCAL_MODE_KEY);
+    sessionStorage.removeItem('vault_unlocked');
+    SecurityManager.setKey(null);
+    setIsLocalOverride(false);
+    setIsVaultUnlocked(false);
     setView('landing');
     setDocType(null);
   };
@@ -105,10 +163,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       goToLanding, 
       signIn, 
       signUp,
+      sendOtp,
+      verifyOtp,
+      enterLocalMode,
+      unlockVault,
       logout, 
       user, 
       username,
-      isGuest
+      isGuest,
+      isCloudActive,
+      isVaultUnlocked: isVaultUnlocked || sessionStorage.getItem('vault_unlocked') === 'true'
     }}>
       {children}
     </AuthContext.Provider>

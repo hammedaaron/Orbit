@@ -1,12 +1,131 @@
 
-import { supabase, IS_SUPABASE_CONFIGURED } from '../supabaseClient';
-import { Group, Item, LogEntry, LogType, VisualType } from '../types';
+import { supabase, IS_SUPABASE_CONFIGURED } from '../supabaseClient.ts';
+import { Group, Item, LogEntry, LogType, VisualType } from '../types.ts';
 
 const LS_KEYS = {
-  FOLDERS: 'orbit_folders',
-  PROJECTS: 'orbit_projects',
-  LOGS: 'orbit_logs',
-  HAS_SEEDED: 'orbit_demo_seeded'
+  HAS_SEEDED: 'orbit_demo_seeded',
+  FORCE_LOCAL: 'orbit_force_local',
+  VAULT_SALT: 'orbit_vault_salt'
+};
+
+const DB_NAME = 'OrbitVault';
+const DB_VERSION = 1;
+const STORES = {
+  FOLDERS: 'folders',
+  PROJECTS: 'projects',
+  LOGS: 'logs'
+};
+
+// Polyfill for randomUUID if not in secure context
+const uuid = () => {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  // Fix: Use a string literal to avoid TypeScript error on adding number to a number array
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c: any) =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  );
+};
+
+// Memory-resident key for the session
+let activeVaultKey: CryptoKey | null = null;
+
+// --- Security Manager (Web Crypto API) ---
+export const SecurityManager = {
+  setKey(key: CryptoKey | null) {
+    activeVaultKey = key;
+  },
+
+  async deriveKey(password: string): Promise<CryptoKey> {
+    let saltHex = localStorage.getItem(LS_KEYS.VAULT_SALT);
+    if (!saltHex) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
+      localStorage.setItem(LS_KEYS.VAULT_SALT, saltHex);
+    }
+    const matches = saltHex.match(/.{1,2}/g);
+    const salt = new Uint8Array((matches || []).map(byte => parseInt(byte, 16)));
+    
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]
+    );
+    
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  },
+
+  async encrypt(data: string): Promise<string> {
+    if (!activeVaultKey) return data;
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      activeVaultKey,
+      enc.encode(data)
+    );
+    
+    const result = new Uint8Array(iv.length + encrypted.byteLength);
+    result.set(iv);
+    result.set(new Uint8Array(encrypted), iv.length);
+    return btoa(String.fromCharCode(...result));
+  },
+
+  async decrypt(base64: string): Promise<string> {
+    if (!activeVaultKey) return base64;
+    try {
+      const data = new Uint8Array(atob(base64).split('').map(c => c.charCodeAt(0)));
+      const iv = data.slice(0, 12);
+      const encrypted = data.slice(12);
+      const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        activeVaultKey,
+        encrypted
+      );
+      return new TextDecoder().decode(decrypted);
+    } catch (e) {
+      console.error("Decryption failed", e);
+      return base64;
+    }
+  }
+};
+
+// --- IndexedDB Wrapper ---
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      Object.values(STORES).forEach(store => {
+        if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
+      });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const dbOp = async (store: string, mode: IDBTransactionMode, fn: (os: IDBObjectStore) => IDBRequest | void): Promise<any> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, mode);
+    const os = tx.objectStore(store);
+    const request = fn(os);
+    if (request) {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    } else {
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    }
+  });
+};
+
+const shouldUseCloud = () => {
+  return IS_SUPABASE_CONFIGURED && localStorage.getItem(LS_KEYS.FORCE_LOCAL) !== 'true';
 };
 
 // --- Mappers ---
@@ -30,10 +149,29 @@ const mapLogFromDB = (l: any): LogEntry => ({
   createdAt: new Date(l.created_at).getTime()
 });
 
+// Helper to encrypt/decrypt full objects for Local mode
+const encryptObject = async (obj: any) => {
+  if (!activeVaultKey) return obj;
+  const json = JSON.stringify(obj);
+  const encrypted = await SecurityManager.encrypt(json);
+  return { id: obj.id, _encrypted: encrypted };
+};
+
+const decryptObject = async (record: any) => {
+  if (!record._encrypted || !activeVaultKey) return record;
+  try {
+    const decryptedJson = await SecurityManager.decrypt(record._encrypted);
+    return JSON.parse(decryptedJson);
+  } catch (e) {
+    console.error("Failed to parse decrypted object", e);
+    return record;
+  }
+};
+
 // --- Service ---
 export const persistenceService = {
   async getFolders(userId: string): Promise<Group[]> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { data } = await supabase.from('folders').select('*').order('order_index');
       return (data || []).map(f => ({
         id: f.id,
@@ -42,51 +180,50 @@ export const persistenceService = {
         createdAt: new Date(f.created_at).getTime()
       }));
     }
-    const local = localStorage.getItem(LS_KEYS.FOLDERS);
-    return local ? JSON.parse(local) : [];
+    const data = await dbOp(STORES.FOLDERS, 'readonly', os => os.getAll());
+    return Promise.all(data.map(decryptObject));
   },
 
   async getProjects(userId: string): Promise<Item[]> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { data } = await supabase.from('projects').select('*').order('updated_at', { ascending: false });
       return (data || []).map(mapProjectFromDB);
     }
-    const local = localStorage.getItem(LS_KEYS.PROJECTS);
-    return local ? JSON.parse(local) : [];
+    const data = await dbOp(STORES.PROJECTS, 'readonly', os => os.getAll());
+    return Promise.all(data.map(decryptObject));
   },
 
   async getLogs(userId: string): Promise<LogEntry[]> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { data } = await supabase.from('logs').select('*').order('created_at', { ascending: false });
       return (data || []).map(mapLogFromDB);
     }
-    const local = localStorage.getItem(LS_KEYS.LOGS);
-    return local ? JSON.parse(local) : [];
+    const data = await dbOp(STORES.LOGS, 'readonly', os => os.getAll());
+    return Promise.all(data.map(decryptObject));
   },
 
   async createFolder(userId: string, name: string, count: number): Promise<Group | null> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { data } = await supabase.from('folders').insert({ user_id: userId, name, order_index: count }).select().single();
       return data ? { id: data.id, name: data.name, orderIndex: data.order_index, createdAt: Date.now() } : null;
     }
-    const folders = await this.getFolders(userId);
-    const newFolder = { id: crypto.randomUUID(), name, orderIndex: count, createdAt: Date.now() };
-    localStorage.setItem(LS_KEYS.FOLDERS, JSON.stringify([...folders, newFolder]));
+    const newFolder = { id: uuid(), name, orderIndex: count, createdAt: Date.now() };
+    const record = await encryptObject(newFolder);
+    await dbOp(STORES.FOLDERS, 'readwrite', os => os.put(record));
     return newFolder;
   },
 
   async deleteFolder(userId: string, folderId: string): Promise<boolean> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { error } = await supabase.from('folders').delete().eq('id', folderId);
       return !error;
     }
-    const folders = await this.getFolders(userId);
-    localStorage.setItem(LS_KEYS.FOLDERS, JSON.stringify(folders.filter(f => f.id !== folderId)));
+    await dbOp(STORES.FOLDERS, 'readwrite', os => os.delete(folderId));
     return true;
   },
 
   async createProject(userId: string, folderId: string, item: Partial<Item>): Promise<Item | null> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { data } = await supabase.from('projects').insert({
         user_id: userId,
         folder_id: folderId,
@@ -98,21 +235,21 @@ export const persistenceService = {
       }).select().single();
       return data ? mapProjectFromDB(data) : null;
     }
-    const projects = await this.getProjects(userId);
     const newProject = { 
-      id: crypto.randomUUID(), 
+      id: uuid(), 
       groupId: folderId, 
       ...item, 
       progress: item.progress || 0, 
       createdAt: Date.now(), 
       updatedAt: Date.now() 
     } as Item;
-    localStorage.setItem(LS_KEYS.PROJECTS, JSON.stringify([newProject, ...projects]));
+    const record = await encryptObject(newProject);
+    await dbOp(STORES.PROJECTS, 'readwrite', os => os.put(record));
     return newProject;
   },
 
   async updateProject(userId: string, projectId: string, updates: Partial<Item>): Promise<boolean> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const dbUpdates: any = {};
       if (updates.title !== undefined) dbUpdates.title = updates.title;
       if (updates.link !== undefined) dbUpdates.link = updates.link;
@@ -124,54 +261,66 @@ export const persistenceService = {
       const { error } = await supabase.from('projects').update(dbUpdates).eq('id', projectId);
       return !error;
     }
-    const projects = await this.getProjects(userId);
-    localStorage.setItem(LS_KEYS.PROJECTS, JSON.stringify(projects.map(p => p.id === projectId ? { ...p, ...updates, updatedAt: Date.now() } : p)));
+    const record = await dbOp(STORES.PROJECTS, 'readonly', os => os.get(projectId));
+    if (record) {
+      const existing = await decryptObject(record);
+      const updated = { ...existing, ...updates, updatedAt: Date.now() };
+      const newRecord = await encryptObject(updated);
+      await dbOp(STORES.PROJECTS, 'readwrite', os => os.put(newRecord));
+    }
     return true;
   },
 
   async deleteProjects(userId: string, projectIds: string[]): Promise<boolean> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { error } = await supabase.from('projects').delete().in('id', projectIds);
       return !error;
     }
-    const projects = await this.getProjects(userId);
-    localStorage.setItem(LS_KEYS.PROJECTS, JSON.stringify(projects.filter(p => !projectIds.includes(p.id))));
+    for (const id of projectIds) {
+      await dbOp(STORES.PROJECTS, 'readwrite', os => os.delete(id));
+    }
     return true;
   },
 
   async createLog(userId: string, projectId: string, content: string, type: LogType): Promise<LogEntry | null> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { data } = await supabase.from('logs').insert({ user_id: userId, project_id: projectId, type, content }).select().single();
       return data ? mapLogFromDB(data) : null;
     }
-    const logs = await this.getLogs(userId);
-    const newLog = { id: crypto.randomUUID(), itemId: projectId, type, content, createdAt: Date.now() };
-    localStorage.setItem(LS_KEYS.LOGS, JSON.stringify([newLog, ...logs]));
+    const newLog = { id: uuid(), itemId: projectId, type, content, createdAt: Date.now() };
+    const record = await encryptObject(newLog);
+    await dbOp(STORES.LOGS, 'readwrite', os => os.put(record));
     return newLog;
   },
 
   async updateLog(userId: string, logId: string, content: string): Promise<boolean> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { error } = await supabase.from('logs').update({ content }).eq('id', logId);
       return !error;
     }
-    const logs = await this.getLogs(userId);
-    localStorage.setItem(LS_KEYS.LOGS, JSON.stringify(logs.map(l => l.id === logId ? { ...l, content } : l)));
+    const record = await dbOp(STORES.LOGS, 'readonly', os => os.get(logId));
+    if (record) {
+      const existing = await decryptObject(record);
+      const updated = { ...existing, content };
+      const newRecord = await encryptObject(updated);
+      await dbOp(STORES.LOGS, 'readwrite', os => os.put(newRecord));
+    }
     return true;
   },
 
   async deleteLog(userId: string, logId: string): Promise<boolean> {
-    if (IS_SUPABASE_CONFIGURED) {
+    if (shouldUseCloud()) {
       const { error } = await supabase.from('logs').delete().eq('id', logId);
       return !error;
     }
-    const logs = await this.getLogs(userId);
-    localStorage.setItem(LS_KEYS.LOGS, JSON.stringify(logs.filter(l => l.id !== logId)));
+    await dbOp(STORES.LOGS, 'readwrite', os => os.delete(logId));
     return true;
   },
 
   async seedDemoData(userId: string): Promise<boolean> {
-    // Only seed if empty and not already seeded this session
+    const folders = await this.getFolders(userId);
+    if (folders.length > 0) return false;
+
     const folder = await this.createFolder(userId, "🚀 Start Here", 0);
     if (!folder) return false;
 
@@ -210,5 +359,39 @@ export const persistenceService = {
 
     localStorage.setItem(LS_KEYS.HAS_SEEDED, 'true');
     return true;
+  },
+
+  async exportVault(): Promise<string> {
+    const rawFolders = await dbOp(STORES.FOLDERS, 'readonly', os => os.getAll());
+    const rawProjects = await dbOp(STORES.PROJECTS, 'readonly', os => os.getAll());
+    const rawLogs = await dbOp(STORES.LOGS, 'readonly', os => os.getAll());
+    
+    const folders = await Promise.all(rawFolders.map(decryptObject));
+    const projects = await Promise.all(rawProjects.map(decryptObject));
+    const logs = await Promise.all(rawLogs.map(decryptObject));
+    
+    return JSON.stringify({ folders, projects, logs, timestamp: Date.now() }, null, 2);
+  },
+
+  async importVault(json: string): Promise<void> {
+    const data = JSON.parse(json);
+    if (data.folders) {
+      for (const f of data.folders) {
+        const record = await encryptObject(f);
+        await dbOp(STORES.FOLDERS, 'readwrite', os => os.put(record));
+      }
+    }
+    if (data.projects) {
+      for (const p of data.projects) {
+        const record = await encryptObject(p);
+        await dbOp(STORES.PROJECTS, 'readwrite', os => os.put(record));
+      }
+    }
+    if (data.logs) {
+      for (const l of data.logs) {
+        const record = await encryptObject(l);
+        await dbOp(STORES.LOGS, 'readwrite', os => os.put(record));
+      }
+    }
   }
 };
