@@ -19,7 +19,6 @@ const STORES = {
 // Polyfill for randomUUID if not in secure context
 const uuid = () => {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  // Fix: Use a string literal to avoid TypeScript error on adding number to a number array
   return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c: any) =>
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   );
@@ -137,6 +136,7 @@ const mapProjectFromDB = (p: any): Item => ({
   visualType: p.visual_type as VisualType,
   visualData: p.visual_data,
   progress: p.progress,
+  isPinned: p.is_pinned || false,
   createdAt: new Date(p.created_at).getTime(),
   updatedAt: new Date(p.updated_at).getTime()
 });
@@ -231,7 +231,8 @@ export const persistenceService = {
         link: item.link,
         visual_type: item.visualType || 'icon',
         visual_data: item.visualData || 'Box',
-        progress: item.progress || 0
+        progress: item.progress || 0,
+        is_pinned: item.isPinned || false
       }).select().single();
       return data ? mapProjectFromDB(data) : null;
     }
@@ -240,6 +241,7 @@ export const persistenceService = {
       groupId: folderId, 
       ...item, 
       progress: item.progress || 0, 
+      isPinned: item.isPinned || false,
       createdAt: Date.now(), 
       updatedAt: Date.now() 
     } as Item;
@@ -256,6 +258,7 @@ export const persistenceService = {
       if (updates.progress !== undefined) dbUpdates.progress = updates.progress;
       if (updates.visualType !== undefined) dbUpdates.visual_type = updates.visualType;
       if (updates.visualData !== undefined) dbUpdates.visual_data = updates.visualData;
+      if (updates.isPinned !== undefined) dbUpdates.is_pinned = updates.isPinned;
       dbUpdates.updated_at = new Date().toISOString();
 
       const { error } = await supabase.from('projects').update(dbUpdates).eq('id', projectId);

@@ -1,3 +1,4 @@
+
 export type VisualType = 'text' | 'icon' | 'image';
 
 export type LogType = 'seen' | 'gained' | 'note';
@@ -22,6 +23,7 @@ export interface Item {
   visualType: VisualType;
   visualData: string; // Icon name or Image URL
   progress: number; // 0-100
+  isPinned?: boolean;
   createdAt: number;
   updatedAt: number;
 }

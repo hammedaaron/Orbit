@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Sun, Moon, Zap, Menu, Folder, Trash2, X, AlertTriangle, Settings2, Loader2, Database, CloudOff } from 'lucide-react';
+import { Plus, Sun, Moon, Zap, Menu, Folder, Trash2, X, AlertTriangle, Settings2, Loader2, Database, CloudOff, Pin } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { ItemCard } from './ItemCard';
 import { ItemDetail } from './ItemDetail';
@@ -138,6 +138,26 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const togglePin = async (itemId: string) => {
+    if (!user) return;
+    const project = projects.find(p => p.id === itemId);
+    if (!project) return;
+
+    const folderProjects = projects.filter(p => p.groupId === project.groupId);
+    const pinnedCount = folderProjects.filter(p => p.isPinned).length;
+
+    if (!project.isPinned && pinnedCount >= 3) {
+      alert("Commander, context stability limited to 3 pinned units per folder.");
+      return;
+    }
+
+    const nextPinned = !project.isPinned;
+    const success = await persistenceService.updateProject(user.id, itemId, { isPinned: nextPinned });
+    if (success) {
+      setProjects(projects.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: Date.now() } : p));
+    }
+  };
+
   const addLog = async (itemId: string, content: string, type: LogType) => {
     if (!user) return;
     const newLog = await persistenceService.createLog(user.id, itemId, content, type);
@@ -182,7 +202,11 @@ export const Dashboard: React.FC = () => {
 
   const activeGroupItems = projects
     .filter(i => i.groupId === activeGroupId)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+    .sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return b.updatedAt - a.updatedAt;
+    });
 
   const selectedItem = projects.find(i => i.id === selectedItemId);
   const selectedItemLogs = logs.filter(l => l.itemId === selectedItemId).sort((a,b) => b.createdAt - a.createdAt);
@@ -293,6 +317,7 @@ export const Dashboard: React.FC = () => {
                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
                          setSelectedForDeletion(next);
                       }}
+                      onTogglePin={() => togglePin(item.id)}
                       onClick={() => !isManageMode && setSelectedItemId(item.id)}
                       onLinkClick={(e) => {
                         e.stopPropagation();
