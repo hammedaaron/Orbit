@@ -23,7 +23,7 @@ export interface Item {
   visualType: VisualType;
   visualData: string; // Icon name or Image URL
   progress: number; // 0-100
-  isPinned?: boolean;
+  isPinned: boolean;
   createdAt: number;
   updatedAt: number;
 }

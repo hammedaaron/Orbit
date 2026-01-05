@@ -10,7 +10,7 @@ interface ItemCardProps {
   onSelect?: () => void;
   onClick: () => void;
   onLinkClick: (e: React.MouseEvent) => void;
-  onTogglePin?: (e: React.MouseEvent) => void;
+  onTogglePin: (e: React.MouseEvent) => void;
 }
 
 export const ItemCard: React.FC<ItemCardProps> = ({ 
@@ -34,7 +34,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
         glass-card alive-shimmer rounded-xl p-5 cursor-pointer transition-all duration-300 relative flex flex-col h-52 justify-between
         ${isManageMode ? 'hover:scale-[1.01]' : 'hover:scale-[1.02] hover:shadow-2xl'}
         ${isSelected ? 'border-red-500/50 bg-red-500/5' : ''}
-        ${item.isPinned ? 'border-blue-500/30' : ''}
+        ${item.isPinned ? 'border-blue-500/40 ring-1 ring-blue-500/20' : ''}
         group
       `}
     >
@@ -99,20 +99,17 @@ export const ItemCard: React.FC<ItemCardProps> = ({
       {/* Progress Bar */}
       <div className="w-full h-1.5 bg-zinc-800/50 rounded-full mt-4 overflow-hidden relative">
         <div 
-          className={`h-full ${status.bar} transition-all duration-700 ease-out shadow-[0_0_10px_rgba(59,130,246,0.5)]`} 
+          className={`h-full ${status.bar} transition-all duration-700 ease-out shadow-[0_0_10px_rgba(59,130,246,0.3)]`} 
           style={{ width: `${item.progress}%` }}
         ></div>
       </div>
 
-      {/* Hover Actions */}
-      <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+      {/* Action Buttons - More accessible opacity logic */}
+      <div className={`absolute top-4 right-4 flex gap-2 transition-all z-10 ${item.isPinned ? 'opacity-100' : 'opacity-0 md:group-hover:opacity-100'}`}>
         {!isManageMode && (
           <button 
-            onClick={(e) => {
-               e.stopPropagation();
-               onTogglePin?.(e);
-            }}
-            className={`p-2 backdrop-blur-sm rounded-lg border transition-all ${item.isPinned ? 'bg-blue-600/80 border-blue-400 text-white' : 'bg-black/60 border-white/5 text-zinc-300 hover:text-white hover:bg-zinc-800'}`}
+            onClick={onTogglePin}
+            className={`p-2 backdrop-blur-sm rounded-lg border transition-all ${item.isPinned ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-black/60 border-white/5 text-zinc-300 hover:text-white hover:bg-zinc-800'}`}
             title={item.isPinned ? "Unpin Project" : "Pin Project (Max 3)"}
           >
             <Icons.Pin size={14} fill={item.isPinned ? "currentColor" : "none"} />

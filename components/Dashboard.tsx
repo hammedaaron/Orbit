@@ -42,7 +42,6 @@ export const Dashboard: React.FC = () => {
     try {
       let fData = await persistenceService.getFolders(user.id);
       
-      // Seed demo data if totally empty
       if (fData.length === 0) {
         await persistenceService.seedDemoData(user.id);
         fData = await persistenceService.getFolders(user.id);
@@ -119,7 +118,8 @@ export const Dashboard: React.FC = () => {
       title: newItemTitle,
       link: newItemLink || undefined,
       visualType: vType,
-      visualData: vData
+      visualData: vData,
+      isPinned: false
     });
 
     if (newItem) {
@@ -132,9 +132,10 @@ export const Dashboard: React.FC = () => {
 
   const updateItem = async (itemId: string, updates: Partial<Item>) => {
     if (!user) return;
-    const success = await persistenceService.updateProject(user.id, itemId, updates);
+    const now = Date.now();
+    const success = await persistenceService.updateProject(user.id, itemId, { ...updates });
     if (success) {
-      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, ...updates, updatedAt: Date.now() } : p));
+      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, ...updates, updatedAt: now } : p));
     }
   };
 
@@ -144,17 +145,20 @@ export const Dashboard: React.FC = () => {
     if (!project) return;
 
     const folderProjects = projects.filter(p => p.groupId === project.groupId);
-    const pinnedCount = folderProjects.filter(p => p.isPinned).length;
+    const pinnedCount = folderProjects.filter(p => !!p.isPinned).length;
 
+    // Limit to 3 pinned projects per folder
     if (!project.isPinned && pinnedCount >= 3) {
       alert("Commander, context stability limited to 3 pinned units per folder.");
       return;
     }
 
     const nextPinned = !project.isPinned;
+    const now = Date.now();
     const success = await persistenceService.updateProject(user.id, itemId, { isPinned: nextPinned });
+    
     if (success) {
-      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: Date.now() } : p));
+      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: now } : p));
     }
   };
 
@@ -203,11 +207,12 @@ export const Dashboard: React.FC = () => {
     return projects
       .filter(i => i.groupId === activeGroupId)
       .sort((a, b) => {
-        // First priority: Pinned status
-        if (a.isPinned && !b.isPinned) return -1;
-        if (!a.isPinned && b.isPinned) return 1;
-        // Second priority: Most recently updated
-        return b.updatedAt - a.updatedAt;
+        // Multi-tier sort: isPinned (primary), updatedAt (secondary)
+        const pA = a.isPinned ? 1 : 0;
+        const pB = b.isPinned ? 1 : 0;
+        
+        if (pA !== pB) return pB - pA; // Pinned (1) comes before unpinned (0)
+        return (b.updatedAt || 0) - (a.updatedAt || 0); // More recent first
       });
   }, [projects, activeGroupId]);
 
@@ -320,7 +325,10 @@ export const Dashboard: React.FC = () => {
                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
                          setSelectedForDeletion(next);
                       }}
-                      onTogglePin={() => togglePin(item.id)}
+                      onTogglePin={(e) => {
+                         e.stopPropagation();
+                         togglePin(item.id);
+                      }}
                       onClick={() => !isManageMode && setSelectedItemId(item.id)}
                       onLinkClick={(e) => {
                         e.stopPropagation();
