@@ -16,7 +16,6 @@ const STORES = {
   LOGS: 'logs'
 };
 
-// Polyfill for randomUUID if not in secure context
 const uuid = () => {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c: any) =>
@@ -24,10 +23,8 @@ const uuid = () => {
   );
 };
 
-// Memory-resident key for the session
 let activeVaultKey: CryptoKey | null = null;
 
-// --- Security Manager (Web Crypto API) ---
 export const SecurityManager = {
   setKey(key: CryptoKey | null) {
     activeVaultKey = key;
@@ -92,7 +89,6 @@ export const SecurityManager = {
   }
 };
 
-// --- IndexedDB Wrapper ---
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -127,7 +123,6 @@ const shouldUseCloud = () => {
   return IS_SUPABASE_CONFIGURED && localStorage.getItem(LS_KEYS.FORCE_LOCAL) !== 'true';
 };
 
-// --- Mappers ---
 const mapProjectFromDB = (p: any): Item => ({
   id: p.id,
   groupId: p.folder_id,
@@ -136,7 +131,7 @@ const mapProjectFromDB = (p: any): Item => ({
   visualType: p.visual_type as VisualType,
   visualData: p.visual_data,
   progress: p.progress,
-  isPinned: p.is_pinned || false,
+  isPinned: !!p.is_pinned,
   createdAt: new Date(p.created_at).getTime(),
   updatedAt: new Date(p.updated_at).getTime()
 });
@@ -149,7 +144,6 @@ const mapLogFromDB = (l: any): LogEntry => ({
   createdAt: new Date(l.created_at).getTime()
 });
 
-// Helper to encrypt/decrypt full objects for Local mode
 const encryptObject = async (obj: any) => {
   if (!activeVaultKey) return obj;
   const json = JSON.stringify(obj);
@@ -158,7 +152,7 @@ const encryptObject = async (obj: any) => {
 };
 
 const decryptObject = async (record: any) => {
-  if (!record._encrypted || !activeVaultKey) return record;
+  if (!record || !record._encrypted || !activeVaultKey) return record;
   try {
     const decryptedJson = await SecurityManager.decrypt(record._encrypted);
     return JSON.parse(decryptedJson);
@@ -168,7 +162,6 @@ const decryptObject = async (record: any) => {
   }
 };
 
-// --- Service ---
 export const persistenceService = {
   async getFolders(userId: string): Promise<Group[]> {
     if (shouldUseCloud()) {
@@ -222,19 +215,28 @@ export const persistenceService = {
     return true;
   },
 
-  async createProject(userId: string, folderId: string, item: Partial<Item>): Promise<Item | null> {
+  async createProject(userId: string, folderId: string, item: Partial<Item>): Promise<Item | string> {
     if (shouldUseCloud()) {
-      const { data } = await supabase.from('projects').insert({
-        user_id: userId,
-        folder_id: folderId,
-        title: item.title,
-        link: item.link,
-        visual_type: item.visualType || 'icon',
-        visual_data: item.visualData || 'Box',
-        progress: item.progress || 0,
-        is_pinned: item.isPinned || false
-      }).select().single();
-      return data ? mapProjectFromDB(data) : null;
+      try {
+        const { data, error } = await supabase.from('projects').insert({
+          user_id: userId,
+          folder_id: folderId,
+          title: item.title,
+          link: item.link,
+          visual_type: item.visualType || 'icon',
+          visual_data: item.visualData || 'Box',
+          progress: item.progress || 0,
+          is_pinned: item.isPinned || false
+        }).select().single();
+        
+        if (error) {
+          console.error("Supabase Project Create Error:", error);
+          return error.message;
+        }
+        return data ? mapProjectFromDB(data) : "Unknown insertion error";
+      } catch (e: any) {
+        return e.message || "Network error during project creation";
+      }
     }
     const newProject = { 
       id: uuid(), 
@@ -333,7 +335,7 @@ export const persistenceService = {
       visualType: 'icon',
       visualData: 'Zap'
     });
-    if (p1) {
+    if (typeof p1 !== 'string') {
       await this.createLog(userId, p1.id, "<h1>Greetings, Commander.</h1><p>Orbit is your dedicated Command Center for Web3. This project card is a <b>Unit</b> of work. You can use cards to track airdrops, protocols, or research nodes.</p>", "note");
       await this.createLog(userId, p1.id, "<h2>Pro-Tip: Folders</h2><p>Look at the sidebar. You are currently in the 🚀 Start Here folder. Group your projects by context (e.g., 'Testnets', 'Clients', 'Mainnet') to maintain focus.</p>", "note");
     }
@@ -344,7 +346,7 @@ export const persistenceService = {
       visualType: 'icon',
       visualData: 'Cpu'
     });
-    if (p2) {
+    if (typeof p2 !== 'string') {
       await this.createLog(userId, p2.id, "<h1>Meet Orbit AI</h1><p>In the bottom right corner, you'll see a microphone. Click it to initiate a <b>Live Session</b>. You can speak naturally to Orbit to open projects or recall notes from your past logs.</p>", "note");
       await this.createLog(userId, p2.id, "<h2>Hands-Free Memory</h2><p>Try saying: <i>'Orbit, tell me about the Welcome project'</i> or <i>'Open project Voice AI'</i>.</p>", "note");
     }
@@ -355,7 +357,7 @@ export const persistenceService = {
       visualType: 'text',
       visualData: 'ABC'
     });
-    if (p3) {
+    if (typeof p3 !== 'string') {
       await this.createLog(userId, p3.id, "<h1>Activity Stream</h1><p>Click on this card to see the full history. You can log three types of entries:</p><ul><li><b>Note:</b> For rich text thoughts and research.</li><li><b>Seen:</b> Quick log for social media mentions or alpha.</li><li><b>Gained:</b> When you secure a whitelist, a role, or tokens.</li></ul>", "note");
       await this.createLog(userId, p3.id, "<h2>The Progress Slider</h2><p>Move the slider at the top of the detail view to update the project status. The card color will change automatically based on your completion level.</p>", "note");
     }

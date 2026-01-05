@@ -17,6 +17,7 @@ export const Dashboard: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [theme, setTheme] = useState<Theme>('night');
   const [loading, setLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -52,11 +53,11 @@ export const Dashboard: React.FC = () => {
         persistenceService.getLogs(user.id)
       ]);
 
-      setFolders(fData);
-      setProjects(pData);
-      setLogs(lData);
+      setFolders(fData || []);
+      setProjects(pData || []);
+      setLogs(lData || []);
 
-      if (fData.length > 0 && !activeGroupId) {
+      if (fData && fData.length > 0 && !activeGroupId) {
         setActiveGroupId(fData[0].id);
       }
     } catch (err) {
@@ -104,29 +105,40 @@ export const Dashboard: React.FC = () => {
   };
 
   const createItem = async () => {
-    if (!activeGroupId || !newItemTitle.trim() || !user) return;
+    const trimmedTitle = newItemTitle.trim();
+    if (!activeGroupId || !trimmedTitle || !user) return;
 
-    let vType: VisualType = newItemLink ? 'text' : 'icon'; 
-    let vData: string = newItemIcon;
+    setIsProcessing(true);
+    try {
+      let vType: VisualType = newItemLink ? 'text' : 'icon'; 
+      let vData: string = newItemIcon;
 
-    if (!newItemLink) {
-       vType = visualMode === 'text' ? 'text' : 'icon';
-       vData = visualMode === 'text' ? (newItemTextLogo || newItemTitle.substring(0, 3)) : newItemIcon;
-    }
+      if (!newItemLink) {
+         vType = visualMode === 'text' ? 'text' : 'icon';
+         vData = visualMode === 'text' ? (newItemTextLogo || trimmedTitle.substring(0, 3)) : newItemIcon;
+      }
 
-    const newItem = await persistenceService.createProject(user.id, activeGroupId, {
-      title: newItemTitle,
-      link: newItemLink || undefined,
-      visualType: vType,
-      visualData: vData,
-      isPinned: false
-    });
+      const result = await persistenceService.createProject(user.id, activeGroupId, {
+        title: trimmedTitle,
+        link: newItemLink.trim() || undefined,
+        visualType: vType,
+        visualData: vData,
+        isPinned: false
+      });
 
-    if (newItem) {
-      setProjects([newItem, ...projects]);
-      setNewItemTitle('');
-      setNewItemLink('');
-      setIsCreatingItem(false);
+      if (typeof result !== 'string') {
+        setProjects([result, ...projects]);
+        setNewItemTitle('');
+        setNewItemLink('');
+        setIsCreatingItem(false);
+      } else {
+        alert(`Vault deployment failed: ${result}. \n\nPRO-TIP: Run the SQL command to add the 'is_pinned' column to your database.`);
+      }
+    } catch (err: any) {
+      console.error("Project Creation Error:", err);
+      alert(`Critical Error: ${err.message || 'Unknown system failure'}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -147,7 +159,6 @@ export const Dashboard: React.FC = () => {
     const folderProjects = projects.filter(p => p.groupId === project.groupId);
     const pinnedCount = folderProjects.filter(p => !!p.isPinned).length;
 
-    // Limit to 3 pinned projects per folder
     if (!project.isPinned && pinnedCount >= 3) {
       alert("Commander, context stability limited to 3 pinned units per folder.");
       return;
@@ -155,10 +166,16 @@ export const Dashboard: React.FC = () => {
 
     const nextPinned = !project.isPinned;
     const now = Date.now();
+    
+    // Optimistic UI update
+    setProjects(prev => prev.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: now } : p));
+
     const success = await persistenceService.updateProject(user.id, itemId, { isPinned: nextPinned });
     
-    if (success) {
-      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: now } : p));
+    if (!success) {
+      // Revert if database update fails
+      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, isPinned: !nextPinned } : p));
+      alert("Unit pinning failed. Ensure your database schema has the 'is_pinned' column.");
     }
   };
 
@@ -207,12 +224,11 @@ export const Dashboard: React.FC = () => {
     return projects
       .filter(i => i.groupId === activeGroupId)
       .sort((a, b) => {
-        // Multi-tier sort: isPinned (primary), updatedAt (secondary)
         const pA = a.isPinned ? 1 : 0;
         const pB = b.isPinned ? 1 : 0;
         
-        if (pA !== pB) return pB - pA; // Pinned (1) comes before unpinned (0)
-        return (b.updatedAt || 0) - (a.updatedAt || 0); // More recent first
+        if (pA !== pB) return pB - pA;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
       });
   }, [projects, activeGroupId]);
 
@@ -352,29 +368,32 @@ export const Dashboard: React.FC = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-secondary mb-1 uppercase">Title</label>
-                  <input autoFocus className="w-full bg-background border border-border rounded-lg p-2.5 text-primary focus:border-accent outline-none" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder="e.g. Berachain Airdrop" />
+                  <input autoFocus className="w-full bg-background border border-border rounded-lg p-2.5 text-primary focus:border-accent outline-none" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder="e.g. Berachain Airdrop" disabled={isProcessing} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-secondary mb-1 uppercase">URL (Optional)</label>
-                  <input className="w-full bg-background border border-border rounded-lg p-2.5 text-primary focus:border-accent outline-none" value={newItemLink} onChange={e => setNewItemLink(e.target.value)} placeholder="https://..." />
+                  <input className="w-full bg-background border border-border rounded-lg p-2.5 text-primary focus:border-accent outline-none" value={newItemLink} onChange={e => setNewItemLink(e.target.value)} placeholder="https://..." disabled={isProcessing} />
                 </div>
                 {!newItemLink && (
                   <div>
                     <label className="block text-xs font-bold text-secondary mb-2 uppercase">Identity</label>
                     <div className="flex p-1 bg-background border border-border rounded-lg mb-3">
-                       <button onClick={() => setVisualMode('icon')} className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${visualMode === 'icon' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500'}`}>Icon</button>
-                       <button onClick={() => setVisualMode('text')} className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${visualMode === 'text' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500'}`}>Text</button>
+                       <button onClick={() => setVisualMode('icon')} className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${visualMode === 'icon' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500'}`} disabled={isProcessing}>Icon</button>
+                       <button onClick={() => setVisualMode('text')} className={`flex-1 py-1 text-xs font-bold rounded-md transition-all ${visualMode === 'text' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500'}`} disabled={isProcessing}>Text</button>
                     </div>
                     {visualMode === 'icon' ? (
-                      <div className="flex flex-wrap gap-2">{DEFAULT_ICONS.map(icon => (<button key={icon} onClick={() => setNewItemIcon(icon)} className={`p-2 rounded-lg border transition-all ${newItemIcon === icon ? 'bg-accent border-accent text-white' : 'bg-background border-border text-secondary'}`}>{icon.substring(0,2)}</button>))}</div>
+                      <div className="flex flex-wrap gap-2">{DEFAULT_ICONS.map(icon => (<button key={icon} onClick={() => setNewItemIcon(icon)} className={`p-2 rounded-lg border transition-all ${newItemIcon === icon ? 'bg-accent border-accent text-white' : 'bg-background border-border text-secondary'}`} disabled={isProcessing}>{icon.substring(0,2)}</button>))}</div>
                     ) : (
-                      <input className="w-full bg-background border border-border rounded-lg p-2.5 text-center text-primary font-black uppercase" maxLength={3} placeholder="ABC" value={newItemTextLogo} onChange={(e) => setNewItemTextLogo(e.target.value.toUpperCase())} />
+                      <input className="w-full bg-background border border-border rounded-lg p-2.5 text-center text-primary font-black uppercase" maxLength={3} placeholder="ABC" value={newItemTextLogo} onChange={(e) => setNewItemTextLogo(e.target.value.toUpperCase())} disabled={isProcessing} />
                     )}
                   </div>
                 )}
                 <div className="flex gap-3 pt-2">
-                  <button onClick={() => setIsCreatingItem(false)} className="flex-1 py-3 rounded-xl border border-border text-secondary font-medium">Cancel</button>
-                  <button onClick={createItem} disabled={!newItemTitle} className="flex-1 py-3 rounded-xl bg-primary text-surface font-bold disabled:opacity-50">Create</button>
+                  <button onClick={() => setIsCreatingItem(false)} className="flex-1 py-3 rounded-xl border border-border text-secondary font-medium" disabled={isProcessing}>Cancel</button>
+                  <button onClick={createItem} disabled={!newItemTitle.trim() || isProcessing} className="flex-1 py-3 rounded-xl bg-primary text-surface font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                    {isProcessing && <Loader2 size={16} className="animate-spin" />}
+                    {isProcessing ? 'Deploying...' : 'Create'}
+                  </button>
                 </div>
               </div>
             </div>

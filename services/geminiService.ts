@@ -2,17 +2,6 @@
 import { GoogleGenAI, LiveServerMessage, Modality, Blob, Type, FunctionDeclaration } from "@google/genai";
 import { LogEntry, Item, Group } from "../types";
 
-/**
- * Safely retrieve the API key from the environment.
- */
-const getApiKey = (): string => {
-  try {
-    return (typeof process !== 'undefined' && process.env?.API_KEY) || '';
-  } catch {
-    return '';
-  }
-};
-
 // Helper for PCM Audio Blob creation
 function createBlob(data: Float32Array): Blob {
   const l = data.length;
@@ -65,7 +54,8 @@ async function decodeAudioData(
 }
 
 export const generateInsights = async (item: Item, logs: LogEntry[]) => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  // Always initialize with the direct environment variable as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const logText = logs.map(l => `- [${l.type.toUpperCase()}] ${new Date(l.createdAt).toLocaleDateString()}: ${l.content}`).join('\n');
   
   const prompt = `Analyze this Web3 project based on my logs.
@@ -85,7 +75,8 @@ export const generateInsights = async (item: Item, logs: LogEntry[]) => {
 };
 
 export const speakText = async (text: string): Promise<AudioBuffer | null> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  // Always initialize with the direct environment variable as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -150,8 +141,8 @@ export class LiveSession {
     this.onOpenItemCallback = contextData.onOpenItem;
     this.onStatusChange('connecting');
 
-    // Initialize AI here to ensure apiKey is ready
-    this.ai = new GoogleGenAI({ apiKey: getApiKey() });
+    // Always initialize with the direct environment variable right before starting a session
+    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const dbContext = contextData.groups.map(g => {
       const groupItems = contextData.items.filter(i => i.groupId === g.id);
@@ -213,6 +204,7 @@ export class LiveSession {
             if (!this.active) return;
             const inputData = e.inputBuffer.getChannelData(0);
             const pcmBlob = createBlob(inputData);
+            // CRITICAL: Ensure data is streamed only after the session promise resolves.
             this.sessionPromise?.then(session => {
               session.sendRealtimeInput({ media: pcmBlob });
             });
@@ -223,21 +215,23 @@ export class LiveSession {
         },
         onmessage: async (message: LiveServerMessage) => {
           if (message.toolCall) {
-            const functionResponses = message.toolCall.functionCalls.map(fc => {
+            // Processing function calls individually as per the guideline examples.
+            for (const fc of message.toolCall.functionCalls) {
               if (fc.name === 'open_project') {
-                 const projectId = (fc.args as any).projectId;
-                 if (this.onOpenItemCallback) this.onOpenItemCallback(projectId);
-                 return {
-                    id: fc.id,
-                    name: fc.name,
-                    response: { result: `Project ${projectId} opened.` }
-                 };
+                const projectId = (fc.args as any).projectId;
+                if (this.onOpenItemCallback) this.onOpenItemCallback(projectId);
+                
+                this.sessionPromise?.then(session => {
+                  session.sendToolResponse({
+                    functionResponses: {
+                      id: fc.id,
+                      name: fc.name,
+                      response: { result: `Project ${projectId} opened.` },
+                    }
+                  });
+                });
               }
-              return { id: fc.id, name: fc.name, response: { result: "Unknown" } };
-            });
-            this.sessionPromise?.then(session => {
-               session.sendToolResponse({ functionResponses });
-            });
+            }
           }
 
           const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
