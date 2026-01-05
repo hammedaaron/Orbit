@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Sun, Moon, Zap, Menu, Folder, Trash2, X, AlertTriangle, Settings2, Loader2, Database, CloudOff, Pin } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { ItemCard } from './ItemCard';
@@ -134,7 +134,7 @@ export const Dashboard: React.FC = () => {
     if (!user) return;
     const success = await persistenceService.updateProject(user.id, itemId, updates);
     if (success) {
-      setProjects(projects.map(p => p.id === itemId ? { ...p, ...updates, updatedAt: Date.now() } : p));
+      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, ...updates, updatedAt: Date.now() } : p));
     }
   };
 
@@ -154,7 +154,7 @@ export const Dashboard: React.FC = () => {
     const nextPinned = !project.isPinned;
     const success = await persistenceService.updateProject(user.id, itemId, { isPinned: nextPinned });
     if (success) {
-      setProjects(projects.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: Date.now() } : p));
+      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, isPinned: nextPinned, updatedAt: Date.now() } : p));
     }
   };
 
@@ -163,8 +163,7 @@ export const Dashboard: React.FC = () => {
     const newLog = await persistenceService.createLog(user.id, itemId, content, type);
     if (newLog) {
       setLogs([newLog, ...logs]);
-      // Update the project's updatedAt timestamp in local state for UI sorting
-      setProjects(projects.map(p => p.id === itemId ? { ...p, updatedAt: Date.now() } : p));
+      setProjects(prev => prev.map(p => p.id === itemId ? { ...p, updatedAt: Date.now() } : p));
     }
   };
 
@@ -200,13 +199,17 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const activeGroupItems = projects
-    .filter(i => i.groupId === activeGroupId)
-    .sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return b.updatedAt - a.updatedAt;
-    });
+  const activeGroupItems = useMemo(() => {
+    return projects
+      .filter(i => i.groupId === activeGroupId)
+      .sort((a, b) => {
+        // First priority: Pinned status
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        // Second priority: Most recently updated
+        return b.updatedAt - a.updatedAt;
+      });
+  }, [projects, activeGroupId]);
 
   const selectedItem = projects.find(i => i.id === selectedItemId);
   const selectedItemLogs = logs.filter(l => l.itemId === selectedItemId).sort((a,b) => b.createdAt - a.createdAt);
@@ -397,6 +400,7 @@ export const Dashboard: React.FC = () => {
           logs={selectedItemLogs}
           onClose={() => setSelectedItemId(null)}
           onUpdateItem={(updates) => updateItem(selectedItem.id, updates)}
+          onTogglePin={() => togglePin(selectedItem.id)}
           onAddLog={(content, type) => addLog(selectedItem.id, content, type)}
           onUpdateLog={updateLog}
           onDeleteLog={deleteLog}

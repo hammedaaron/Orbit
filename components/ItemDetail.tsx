@@ -1,11 +1,13 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, ExternalLink, Sparkles, Volume2, FileText, 
   Linkedin, Instagram, Youtube, Trash2, ChevronDown, ChevronUp,
   Bold, Heading1, Heading2, Scissors, List, Share2, Maximize2, Minimize2,
-  Pencil, Save, Type, LayoutGrid, AlertTriangle
+  Pencil, Save, Type, LayoutGrid, AlertTriangle, Pin
 } from 'lucide-react';
-import { Item, LogEntry, getStatus, LogType, IconName, VisualType } from '../types';
+// Added LogEntry to imports from '../types'
+import { Item, getStatus, LogType, IconName, VisualType, LogEntry } from '../types';
 import { generateInsights, speakText } from '../services/geminiService';
 
 const DEFAULT_ICONS: IconName[] = ['Box', 'Zap', 'Globe', 'Cpu', 'Wallet', 'FileText', 'Target', 'Layers'];
@@ -32,6 +34,7 @@ interface ItemDetailProps {
   logs: LogEntry[];
   onClose: () => void;
   onUpdateItem: (updates: Partial<Item>) => void;
+  onTogglePin: () => void;
   onAddLog: (content: string, type: LogType) => void;
   onUpdateLog: (logId: string, content: string) => void;
   onDeleteLog: (logId: string) => void;
@@ -151,6 +154,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
   logs,
   onClose,
   onUpdateItem,
+  onTogglePin,
   onAddLog,
   onUpdateLog,
   onDeleteLog,
@@ -298,9 +302,9 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
           <div className="p-5 border-b border-border bg-background/50 backdrop-blur-sm">
             {!isEditingHeader ? (
               <div className="flex justify-between items-start">
-                <div>
+                <div className="flex-1 min-w-0 pr-4">
                   <div className="flex items-center gap-2 mb-1 group">
-                    <h2 className="text-2xl font-black text-primary tracking-tight">{item.title}</h2>
+                    <h2 className="text-2xl font-black text-primary tracking-tight truncate">{item.title}</h2>
                     <button 
                       onClick={() => {
                         setEditTitle(item.title);
@@ -312,6 +316,13 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                       className="opacity-0 group-hover:opacity-100 text-secondary hover:text-accent p-1 transition-opacity"
                     >
                       <Pencil size={14} />
+                    </button>
+                    <button 
+                      onClick={onTogglePin}
+                      className={`ml-2 p-1.5 rounded-lg transition-all ${item.isPinned ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-zinc-600 hover:text-blue-500'}`}
+                      title={item.isPinned ? "Unpin Unit" : "Pin Unit (Max 3)"}
+                    >
+                      <Pin size={16} fill={item.isPinned ? "currentColor" : "none"} />
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
@@ -636,7 +647,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                 contentEditable
                 className="prose prose-invert max-w-none outline-none empty:before:content-['Type_your_notes_here...'] empty:before:text-zinc-600 
                   [&_h1]:text-3xl [&_h1]:font-black [&_h1]:text-primary [&_h1]:mt-4 [&_h1]:mb-2 
-                  [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-accent [&_h2]:mt-4 [&_h2]:mb-2 
+                  [&_xl]:text-xl [&_h2]:font-bold [&_h2]:text-accent [&_h2]:mt-4 [&_h2]:mb-2 
                   [&_ul]:list-disc [&_ul]:list-outside [&_ul]:pl-5 [&_ul]:my-3
                   [&_ol]:list-decimal [&_ol]:list-outside [&_ol]:pl-5 [&_ol]:my-3
                   [&_li]:mb-1.5 [&_li]:pl-1
