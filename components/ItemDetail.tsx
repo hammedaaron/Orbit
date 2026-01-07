@@ -138,7 +138,7 @@ const ExpandableLogCard: React.FC<{ log: LogEntry; onRequestDelete: () => void; 
           </div>
         ) : (
           <div>
-            <h4 className="text-sm font-bold text-primary truncate pr-8">{previewTitle}</h4>
+            <h4 className="text-sm font-bold text-primary pr-8">{previewTitle}</h4>
             {previewBody && (
               <p className="text-xs text-secondary mt-1 truncate opacity-70 pl-0.5">{previewBody}...</p>
             )}
@@ -329,7 +329,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                     <span className={`text-xs font-mono font-bold uppercase ${status.color}`}>{status.label}</span>
                     {item.link && (
                       <a 
-                        href={item.link} 
+                        href={item.link.includes('://') ? item.link : `https://${item.link}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="flex items-center gap-1 text-[10px] text-secondary hover:text-accent transition-colors border border-border rounded px-1.5 py-0.5"

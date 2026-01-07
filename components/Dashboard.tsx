@@ -348,7 +348,10 @@ export const Dashboard: React.FC = () => {
                       onClick={() => !isManageMode && setSelectedItemId(item.id)}
                       onLinkClick={(e) => {
                         e.stopPropagation();
-                        if(item.link) window.open(item.link, '_blank');
+                        if(item.link) {
+                          const normalizedUrl = item.link.includes('://') ? item.link : `https://${item.link}`;
+                          window.open(normalizedUrl, '_blank');
+                        }
                       }}
                     />
                   ))}
